@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Gázóra Leolvasás</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1565C0">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gázóra">
+  <link rel="apple-touch-icon" href="icon-192.svg">
+  <link rel="icon" href="icon-192.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== SETUP SCREEN ===== -->
+<div id="setup-screen" class="screen active">
+  <div class="logo">🔥</div>
+  <h1>Gázóra Leolvasás</h1>
+  <p>Az app Google Sheets-et használ az adatok tárolásához. Először egy Google OAuth Client ID szükséges.</p>
+
+  <div class="setup-card">
+    <h3>Egyszeri beállítás – Google Cloud Console</h3>
+    <ol>
+      <li>Nyissa meg: <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a></li>
+      <li>Hozzon létre egy projektet (pl. "Gázóra")</li>
+      <li>APIs & Services → Enable APIs → <b>Google Sheets API</b> engedélyezése</li>
+      <li>APIs & Services → Credentials → Create Credentials → <b>OAuth 2.0 Client ID</b></li>
+      <li>Alkalmazás típusa: <b>Web application</b></li>
+      <li>Authorized JavaScript origins: <code id="origin-hint"></code></li>
+      <li>Másolja be az alább kapott <b>Client ID</b>-t</li>
+    </ol>
+  </div>
+
+  <div class="setup-card" style="margin-top:8px">
+    <div class="form-group">
+      <label for="client-id-input">Google OAuth Client ID</label>
+      <input type="text" id="client-id-input" placeholder="123456789-abc...apps.googleusercontent.com">
+    </div>
+    <button class="btn btn-primary" id="setup-save-btn">Mentés és folytatás</button>
+  </div>
+</div>
+
+<!-- ===== AUTH SCREEN ===== -->
+<div id="auth-screen" class="screen">
+  <div class="logo">🔥</div>
+  <h1>Gázóra</h1>
+  <p>Jelentkezzen be Google-fiókjával a leolvasások szinkronizálásához.</p>
+  <button class="btn btn-google" id="signin-btn">
+    <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Bejelentkezés Google-lel
+  </button>
+  <button class="btn btn-ghost" id="change-client-btn" style="margin-top:12px;color:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.4)">Client ID módosítása</button>
+</div>
+
+<!-- ===== LOADING SCREEN ===== -->
+<div id="loading-screen" class="screen">
+  <div class="spinner"></div>
+  <p style="color:white;margin-top:16px">Betöltés...</p>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="app" style="display:none">
+
+  <header>
+    <h1>🔥 Gázóra</h1>
+    <div id="user-avatar" title="Fiók">👤</div>
+  </header>
+
+  <div id="content">
+
+    <!-- DASHBOARD TAB -->
+    <section id="tab-dashboard" class="active">
+      <div id="status-card" class="status-card">
+        <div class="status-label">Utolsó leolvasás</div>
+        <div class="status-value" id="last-reading-value">—</div>
+        <div class="status-sub" id="last-reading-date">Még nincs adat</div>
+      </div>
+
+      <div class="card">
+        <h2>Éves keret (1 729 m³)</h2>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span id="used-label">0 m³ felhasználva</span>
+            <span id="remaining-label">1729 m³ marad</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="annual-progress" style="width:0%"></div></div>
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary);margin-top:8px" id="projection-text"></div>
+      </div>
+
+      <div class="card">
+        <h2>Leolvasás rögzítése</h2>
+        <form id="reading-form">
+          <div class="form-group">
+            <label for="reading-date">Dátum</label>
+            <input type="date" id="reading-date" required>
+          </div>
+          <div class="form-group">
+            <label for="reading-value">Óraállás (m³)</label>
+            <input type="number" id="reading-value" step="0.001" min="0" placeholder="pl. 12345.678" required>
+          </div>
+          <div class="form-group">
+            <label for="reading-notes">Megjegyzés (opcionális)</label>
+            <textarea id="reading-notes" rows="2" placeholder="pl. szokatlanul magas fogyasztás"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" id="save-btn">💾 Mentés</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Mai fogyasztás (becsült)</h2>
+        <div class="stats-grid" style="margin:0">
+          <div class="stat-box">
+            <div class="label">Ma (becsült)</div>
+            <div class="value" id="today-est">—</div>
+            <div class="unit">m³/nap</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">7 napos átlag</div>
+            <div class="value" id="avg-7">—</div>
+            <div class="unit">m³/nap</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">30 napos átlag</div>
+            <div class="value" id="avg-30">—</div>
+            <div class="unit">m³/nap</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">Gázév kezdete</div>
+            <div class="value" id="year-start-val">—</div>
+            <div class="unit">m³ / jún. 1.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATS TAB -->
+    <section id="tab-stats">
+      <div class="year-tabs" id="year-tabs"></div>
+
+      <div class="card">
+        <h2>Kumulatív fogyasztás (gázév szerint)</h2>
+        <div class="chart-wrap"><canvas id="chart-cumulative"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Havi fogyasztás</h2>
+        <div class="chart-wrap"><canvas id="chart-monthly"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Fogyasztás vs. hőmérséklet</h2>
+        <div class="chart-wrap"><canvas id="chart-correlation"></canvas></div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+          Kis halványkék pont = egy leolvasási intervallum. Nagy kék pont = 2°C-os sávok átlaga (mérete az adatszámmal arányos). Narancssárga = trendvonal.
+        </p>
+        <div id="correlation-info" style="margin-top:10px;font-size:13px;color:var(--text-secondary);line-height:1.8;padding:10px;background:var(--primary-light);border-radius:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="selected-year-label">Kiválasztott év részletei</h2>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <div class="label">Összfogyasztás</div>
+            <div class="value" id="year-total">—</div>
+            <div class="unit">m³</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">Napi átlag</div>
+            <div class="value" id="year-daily-avg">—</div>
+            <div class="unit">m³/nap</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">Fűtési szezon</div>
+            <div class="value" id="year-heating">—</div>
+            <div class="unit">m³</div>
+          </div>
+          <div class="stat-box">
+            <div class="label">Melegvíz (nyár)</div>
+            <div class="value" id="year-hot-water">—</div>
+            <div class="unit">m³</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY TAB -->
+    <section id="tab-history">
+      <div class="card" style="padding:12px">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <input type="text" id="history-search" placeholder="Szűrés dátumra..." style="flex:1">
+          <button class="btn btn-secondary btn-sm" id="export-csv-btn">⬇ CSV</button>
+        </div>
+        <div id="readings-list">
+          <div class="empty"><div class="icon">📊</div><p>Még nincs rögzített leolvasás</p></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>CSV importálás</h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          Importáljon meglévő adatokat CSV fájlból.<br>
+          Kötelező oszlopok: <code>datum</code>, <code>alas</code> (m³)<br>
+          Opcionális: <code>megjegyzes</code>
+        </p>
+        <div class="form-group">
+          <label for="csv-file">CSV fájl kiválasztása</label>
+          <input type="file" id="csv-file" accept=".csv,.txt" style="padding:8px">
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-size:13px;color:var(--text-secondary)">Elválasztó karakter</label>
+          <select id="csv-separator" style="margin-top:6px">
+            <option value=",">Vessző (,)</option>
+            <option value=";" selected>Pontosvessző (;)</option>
+            <option value="\t">Tab</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="import-csv-btn">⬆ Importálás</button>
+        <div id="import-status" style="margin-top:10px;font-size:13px;color:var(--text-secondary)"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS TAB -->
+    <section id="tab-settings">
+      <div class="card">
+        <h2>Értesítések</h2>
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">Szombati emlékeztető</div>
+            <div class="setting-desc">Szombat reggel 8-kor értesítés a leolvasáshoz</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-saturday"><span class="slider"></span></label>
+        </div>
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">Késedelmi figyelmeztetés</div>
+            <div class="setting-desc">Ha 7 napnál régebben volt leolvasás</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-overdue"><span class="slider"></span></label>
+        </div>
+        <div id="notif-perm-wrap" style="margin-top:12px;display:none">
+          <button class="btn btn-secondary" id="request-notif-btn">🔔 Értesítések engedélyezése</button>
+        </div>
+        <div id="notif-status" style="font-size:13px;color:var(--text-secondary);margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Hőmérséklet adatok</h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          Napi átlaghőmérséklet letöltése Hévízre (Open-Meteo), tárolás Sheets-ben.<br>
+          Az első leolvasástól napjainkig tölti le, majd csak a hiányzó napokat pótolja.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="sync-temp-btn">🌡️ Hőmérséklet szinkronizálás</button>
+          <button class="btn btn-ghost btn-sm" id="open-temp-sheet-btn">Táblázat megnyitása</button>
+        </div>
+        <div id="sync-temp-status" style="font-size:13px;color:var(--text-secondary);margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Google Sheets</h2>
+        <div class="setting-item">
+          <div>
+            <div class="setting-label">Táblázat azonosítója</div>
+            <div class="setting-desc" id="sheet-id-display">Automatikusan létrehozva</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="open-sheet-btn">Megnyitás</button>
+        </div>
+        <div style="margin-top:12px">
+          <label style="font-size:13px;color:var(--text-secondary)">Csatlakozás meglévő táblázathoz:</label>
+          <div class="input-group" style="margin-top:8px">
+            <input type="text" id="sheet-id-input" placeholder="Táblázat ID (URL-ből)">
+            <button class="btn btn-secondary btn-sm" id="connect-sheet-btn">Csatlakozás</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Fiók</h2>
+        <div class="setting-item">
+          <div>
+            <div class="setting-label" id="user-name-display">—</div>
+            <div class="setting-desc" id="user-email-display">Bejelentkezve</div>
+          </div>
+          <button class="btn btn-danger btn-sm" id="signout-btn">Kilépés</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Névjegy</h2>
+        <div style="font-size:13px;color:var(--text-secondary);line-height:1.8">
+          <div>Gázóra Leolvasás v1.0</div>
+          <div>Éves kedvezményes keret: <b>1 729 m³</b> (máj. 31. forduló)</div>
+          <div>Alapfogyasztás (melegvíz): <b>0,5 m³/nap</b></div>
+          <div>Adatgyűjtés kezdete: <b>2019</b></div>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- #content -->
+
+  <nav id="bottom-nav">
+    <button class="nav-btn active" data-tab="dashboard"><span class="icon">🏠</span>Főoldal</button>
+    <button class="nav-btn" data-tab="stats"><span class="icon">📈</span>Statisztika</button>
+    <button class="nav-btn" data-tab="history"><span class="icon">📋</span>Előzmények</button>
+    <button class="nav-btn" data-tab="settings"><span class="icon">⚙️</span>Beállítások</button>
+  </nav>
+
+</div><!-- #app -->
+
+<div id="toast"></div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="app.js"></script>
+</body>
+</html>
