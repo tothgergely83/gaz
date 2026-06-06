@@ -1192,6 +1192,54 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('request-notif-btn').addEventListener('click', requestNotificationPermission);
 
+  document.getElementById('test-notif-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('test-notif-btn');
+    const status = document.getElementById('test-notif-status');
+
+    if (Notification.permission !== 'granted') {
+      await requestNotificationPermission();
+      if (Notification.permission !== 'granted') {
+        status.textContent = '❌ Értesítések nincsenek engedélyezve.';
+        return;
+      }
+    }
+
+    btn.disabled = true;
+    const iconUrl = new URL('icon-192.svg', location.href).href;
+    const in1min = Date.now() + 60000;
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+
+      // Try TimestampTrigger (Chrome Android — fires even if browser closed)
+      if (typeof TimestampTrigger !== 'undefined') {
+        await reg.showNotification('🔥 Gázóra – Teszt', {
+          body: 'TimestampTrigger működik! A szombati értesítés is így fog érkezni.',
+          icon: iconUrl,
+          tag: 'test',
+          renotify: true,
+          showTrigger: new TimestampTrigger(in1min)
+        });
+        status.textContent = '✅ TimestampTrigger: értesítés 1 perc múlva jön – böngésző bezárható!';
+      } else {
+        // Fallback: setTimeout (tab nyitva kell maradjon)
+        setTimeout(async () => {
+          await reg.showNotification('🔥 Gázóra – Teszt', {
+            body: 'setTimeout működik. (A szombati értesítéshez a PWA-t telepíteni kell.)',
+            icon: iconUrl,
+            tag: 'test',
+            renotify: true
+          });
+        }, 60000);
+        status.textContent = '⚠️ setTimeout: értesítés 1 perc múlva jön – az oldalt nyitva kell hagyni. (TimestampTrigger nem elérhető ezen az eszközön)';
+      }
+    } catch (err) {
+      status.textContent = `❌ Hiba: ${err.message}`;
+    }
+
+    setTimeout(() => { btn.disabled = false; }, 65000);
+  });
+
   // Open sheet
   document.getElementById('open-sheet-btn').addEventListener('click', () => {
     if (spreadsheetId) window.open(`https://docs.google.com/spreadsheets/d/${spreadsheetId}`, '_blank');
