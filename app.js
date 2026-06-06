@@ -939,10 +939,15 @@ async function requestNotificationPermission() {
 
 async function schedulePeriodicSync() {
   const reg = await navigator.serviceWorker.ready;
+  // Register periodic sync (Chrome Android, PWA installed)
   if ('periodicSync' in reg) {
     try {
       await reg.periodicSync.register('check-reading', { minInterval: 12 * 3600 * 1000 });
-    } catch (e) { console.log('Periodic sync not available'); }
+    } catch (e) { console.log('Periodic sync not available:', e.message); }
+  }
+  // Schedule TimestampTrigger for next Saturday 8am (more reliable, Chrome 80+)
+  if (reg.active) {
+    reg.active.postMessage({ type: 'SCHEDULE_WEEKLY' });
   }
 }
 
@@ -1102,6 +1107,7 @@ async function startApp() {
     updateSettingsUI();
     checkOnOpen();
     notifyServiceWorker();
+    if (Notification.permission === 'granted') schedulePeriodicSync();
 
     // Sheet ID display
     if (spreadsheetId) {
